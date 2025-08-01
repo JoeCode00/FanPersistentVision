@@ -55,7 +55,12 @@
 			"streambuf": "cpp",
 			"typeinfo": "cpp",
 			"chrono": "cpp",
-			"ratio": "cpp"
+			"ratio": "cpp",
+			"condition_variable": "cpp",
+			"mutex": "cpp",
+			"semaphore": "cpp",
+			"stop_token": "cpp",
+			"thread": "cpp"
 		}
 	}
 }

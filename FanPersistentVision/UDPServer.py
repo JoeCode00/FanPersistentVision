@@ -8,6 +8,6 @@ sock.bind(server_address)
 # for i in range(256*19):
 #     arr += [i % 256] * 3  # Repeat each value three times
 
-arr = [0, 128, 255]*4500 #128 is a dummy byte. 3 bytes to a color, 2000 colors per UDP 'frame'.
+arr = [0, 0, 0]+[1, 0, 0]+[2, 0, 0]+[3, 0, 0]+[4, 0, 0]
 while True:
     sock.sendto(bytearray(arr), ('10.0.0.3', 8888))
