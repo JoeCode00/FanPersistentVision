@@ -60,7 +60,10 @@
 			"mutex": "cpp",
 			"semaphore": "cpp",
 			"stop_token": "cpp",
-			"thread": "cpp"
+			"thread": "cpp",
+			"iostream": "cpp",
+			"istream": "cpp",
+			"sstream": "cpp"
 		}
 	}
 }
