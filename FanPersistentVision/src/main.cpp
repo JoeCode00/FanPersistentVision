@@ -5,14 +5,14 @@
 #include <cmath>
 #include <chrono>
 
-const int LEDS_PER_BLADE = 1;
-const int BYTES_PER_LED = 3;
-const int BLADES = 5;
+#include <constants.h>
+
 
 const int BYTES_PER_BLADE = BYTES_PER_LED * LEDS_PER_BLADE;
 const int PACKET_SIZE = BLADES * BYTES_PER_BLADE;
 
 volatile bool print = false;
+
 
 
 volatile uint8_t bytesOut[BLADES][BYTES_PER_BLADE];
@@ -27,6 +27,7 @@ const long DELAY_US = 1;
 
 qindesign::network::EthernetUDP udp;
 auto start_time = std::chrono::high_resolution_clock::now();
+
 
 void async_print(int threadIndex)
 {
@@ -128,9 +129,33 @@ void setup()
     threads.addThread(async_print, i);
   }
 
-  IPAddress staticIp(10, 0, 0, 3);
+  String teensy_ip = String(TEENSY_IP);
+  int teensy_ip_array[4];
+  char delimiter = '.';
+  int partCount = 0;
+
+  int startIndex = 0;
+  int endIndex = teensy_ip.indexOf(delimiter);
+
+  // Loop to extract parts until no more delimiters are found
+  while (endIndex != -1) {
+    int c = teensy_ip.substring(startIndex, endIndex).toInt();
+    Serial.println(c);
+    teensy_ip_array[partCount++] = c;
+    startIndex = endIndex + 1;
+    endIndex = teensy_ip.indexOf(delimiter, startIndex);
+  }
+
+  for (int i = 0; i < partCount; i++) {
+    Serial.print("Part ");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.println(teensy_ip_array[i]);
+  }
+
+  IPAddress staticIp(teensy_ip_array[0], teensy_ip_array[1], teensy_ip_array[2], teensy_ip_array[3]);
   IPAddress subnet(255, 255, 255, 0);
-  IPAddress gateway(10, 0, 0, 3);
+  IPAddress gateway(teensy_ip_array[0], teensy_ip_array[1], teensy_ip_array[2], teensy_ip_array[3]);
   Serial.begin(9600);
 
   // Start Ethernet and obtain an IP address (using DHCP)
@@ -144,8 +169,9 @@ void setup()
   Serial.print("My IP address: ");
   Serial.println(qindesign::network::Ethernet.localIP());
 
+  int teensyPort = int(TEENSY_PORT);
   // Listen for UDP packets on a specific port
-  udp.begin(8888); // Replace with your desired UDP port
+  udp.begin(teensyPort); // Replace with your desired UDP port
 }
 
 void loop()
