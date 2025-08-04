@@ -1,4 +1,5 @@
+error in tcgetattr
 error writing to Teensy
 
 *** [upload] Error 1
-========================== [FAILED] Took 2.03 seconds ==========================
+========================== [FAILED] Took 1.77 seconds ==========================

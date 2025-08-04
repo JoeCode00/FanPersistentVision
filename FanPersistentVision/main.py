@@ -3,6 +3,8 @@ import time
 from datetime import datetime
 import os
 import numpy as np
+from src.buildTeensy import build_teensy
+from src.tcp import start_server, transmit
 
 def read_h_constants(filepath):
     constants = {}
@@ -25,52 +27,70 @@ def read_h_constants(filepath):
                         continue
     return constants
 
-def set_leds(arr, frame_mod=0):
-    for blade in range(BLADES):
-        arr[blade, :, :] = blade
+def set_leds(arr, frame=0):
+    for circumf in range(LEDS_CRICUMF):
+        arr[circumf, :, :] = np.mod(circumf, 256)
     return arr
 
 def create_bytes(preamble_list, arr):
-    return bytearray(preamble_list+arr.reshape((BLADES*LEDS_PER_BLADE*BYTES_PER_LED)).tolist())
+    # More efficient: pre-allocate and use numpy operations
+    total_size = len(preamble_list) + arr.size
+    result = np.empty(total_size, dtype=np.uint8)
+    result[:len(preamble_list)] = preamble_list
+    result[len(preamble_list):] = arr.ravel()
+    return result.tobytes()
 
-def start_server(ip, port):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.bind((ip, port))
-    except OSError:
-        raise ConnectionError("Plug in Teensy Ethernet to computer.")
-    return sock
+def int_to_2_uint8(integer):
+    return np.mod(np.floor(integer/256), 256), np.mod(integer, 256)
 
-def transmit(sock, client_ip, client_port, preamble_list, arr):
-    sock.sendto(create_bytes(preamble_list, arr), (client_ip, client_port))
-
-def build_teensy():
-    os.system("cd ~/Documents/GitHub/FanPersistentVision/FanPersistentVision; pio run -s -t upload > output.log 2>&1 & pio run -s -t upload > output.log 2>&1")
-    print("Teensy attempted build")
-
-def set_preamble(frame_mod):
+def set_preamble(frame):
     preamble = np.zeros(PREAMBLE_LENGTH)
-    preamble[PREAMBLE_FRAME_INDEX] = frame_mod 
+    preamble[PREAMBLE_MAGIC_NUMBER_INDEX] = PREAMBLE_MAGIC_NUMBER
+    preamble[PREAMBLE_FRAME_INDEX0], preamble[PREAMBLE_FRAME_INDEX1] = int_to_2_uint8(frame)
+
     return preamble.astype(np.uint8).tolist()
+
+def ellapsed_time_s():
+    return datetime.now().timestamp - start_time
 
 def main():
     build_teensy()
-    frame_mod = 0
-    sock = start_server(ip='0.0.0.0', port=SERVER_PORT)
-    arr = np.array(np.zeros((BLADES, LEDS_PER_BLADE, BYTES_PER_LED)), dtype=np.int16)
+    frame = 0
     
+    arr = np.array(np.zeros((LEDS_CRICUMF, LEDS_PER_BLADE, BYTES_PER_LED)), dtype=np.uint8)
+    server_socket = start_server()
+    
+    try:
+        client_socket, client_address = server_socket.accept()
+        print(f"Client connected from {client_address}")
+        # while True:
+        #     preamble_list =  set_preamble(frame)
+        #     arr = set_leds(arr, frame)
+        #     data_to_send = create_bytes(preamble_list, arr)
+        #     transmit(client_socket, data_to_send)
+        #     print(f"Sent frame {frame}, size: {len(data_to_send)} bytes")
+        #     frame = frame + 1
 
-    while True:
-        frame_mod = np.mod(frame_mod+1, 255)
-        preamble_list =  set_preamble(frame_mod)
-        arr = set_leds(arr, frame_mod)
-        transmit(sock, TEENSY_IP, TEENSY_PORT, preamble_list, arr)
-        time.sleep(0.001)
+        preamble_list =  set_preamble(frame)
+        arr = set_leds(arr, frame)
+        data_to_send = create_bytes(preamble_list, arr)
+        while True:
+            transmit(client_socket, data_to_send)
+            print(f"{datetime.now().isoformat()} Sent frame {frame}, size: {len(data_to_send)} bytes")
+            frame = frame + 1
+    except KeyboardInterrupt:
+        try:
+            client_socket.close()
+            server_socket.close()
+        except:
+            ...
+
 
 constants = read_h_constants(os.getcwd()+'/src/constants.h')
-BLADES = constants["BLADES"]
+LEDS_CRICUMF = constants["LEDS_CRICUMF"]
 LEDS_PER_BLADE = constants["LEDS_PER_BLADE"]
 BYTES_PER_LED = constants["BYTES_PER_LED"]
+BLADES = constants["BLADES"]
 
 TEENSY_IP = constants["TEENSY_IP"]
 TEENSY_PORT = constants["TEENSY_PORT"]
@@ -78,7 +98,14 @@ SERVER_IP = constants["SERVER_IP"]
 SERVER_PORT =constants["SERVER_PORT"]
 
 PREAMBLE_LENGTH = constants["PREAMBLE_LENGTH"]
-PREAMBLE_FRAME_INDEX = constants["PREAMBLE_FRAME_INDEX"]
+PREAMBLE_MAGIC_NUMBER = constants["PREAMBLE_MAGIC_NUMBER"]
+PREAMBLE_MAGIC_NUMBER_INDEX = constants["PREAMBLE_MAGIC_NUMBER_INDEX"]
+PREAMBLE_FRAME_INDEX0 = constants["PREAMBLE_FRAME_INDEX0"]
+PREAMBLE_FRAME_INDEX1 = constants["PREAMBLE_FRAME_INDEX1"]
+PREAMBLE_FRAME_BUFFER_IN_INDEX0 = constants["PREAMBLE_FRAME_BUFFER_IN_INDEX0"]
+PREAMBLE_FRAME_BUFFER_IN_INDEX1 = constants["PREAMBLE_FRAME_BUFFER_IN_INDEX1"]
+
+start_time = datetime.now().timestamp()
 
 print("UDP server started")
 try:
