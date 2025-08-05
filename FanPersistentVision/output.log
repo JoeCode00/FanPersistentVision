@@ -1,5 +1,7 @@
-error in tcgetattr
+Unable to open /dev/bus/usb/001/024 for reboot request
+  Often this error is caused by ModemManager mistaking Teensy========================== [FAILED] Took 0.95 seconds ==========================
+Manager!
 error writing to Teensy
 
 *** [upload] Error 1
-========================== [FAILED] Took 1.77 seconds ==========================
+========================== [FAILED] Took 1.80 seconds ==========================

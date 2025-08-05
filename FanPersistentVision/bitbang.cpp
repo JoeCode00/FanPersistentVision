@@ -7,7 +7,7 @@ const int SCK_PIN = 13; // Example pin, choose any available digital output pin
 // Define the delay for a 2.5 MHz clock
 // A 2.5 MHz clock means a period of 1 / 2.5 MHz = 0.4 microseconds = 400 nanoseconds.
 // Each clock cycle involves setting SCK HIGH and then LOW, so each phase is 200 nanoseconds.
-const int BIT_DELAY_NS = 180; // Delay for each phase of the clock (half a cycle)
+const int BIT_DELAY_NS = 200; // Delay for each phase of the clock (half a cycle)
 const int NUM_LEDS = 2;
 
 
@@ -75,10 +75,10 @@ void loop()
 {
   sendColor(255, 0, 0);
   sendColor(255, 0, 0);
-  delay(200);
+  delay(2000);
   sendColor(0, 0, 0);
   sendColor(0, 0, 0);
-  delay(200);
+  delay(2000);
   // for (int r = 0; r < 255; r++){
   //   // for (int g = 0; g < 255; g++){
   //   //   for (int b = 0; b < 255; b++){

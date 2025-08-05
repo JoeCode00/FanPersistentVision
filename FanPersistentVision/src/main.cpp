@@ -88,7 +88,16 @@ uint8_t old_frame = 0;
 int frame_count = 0;
 float frames_per_second = 0.0;
 
-long long current_time_ns()
+bool ws2812b_spi_data[LEDS_PER_BLADE * BYTES_PER_LED * 8 * 3]; // *3 due to the 3 bits needed for PWM emulation
+
+const int MOSI_PINS[BLADES] = {7, 14, 17, 20, 26};
+const int SCK_PINS[BLADES] = {3, 15, 18, 21, 27};
+const int MISO_PINS[BLADES] = {1, 1, 1, 1, 1};
+const int CS_PINS[BLADES] = {2, 2, 2, 2, 2};
+const int CLOCK_FREQ = 2500000; // 2.5 MHz
+
+long long
+current_time_ns()
 {
   auto current = std::chrono::high_resolution_clock::now();
   return std::chrono::duration_cast<std::chrono::nanoseconds>(current.time_since_epoch()).count();
@@ -230,6 +239,75 @@ void move_uint8_t(uint8_t *source, int source_start_index, int transfer_length_B
   memcpy(&destination[destination_start_index], &source[source_start_index], transfer_length_B);
 }
 
+// Define the pins for MOSI and SCK
+const int MOSI_PIN = 7; // Example pin, choose any available digital output pin
+const int SCK_PIN = 13; // Example pin, choose any available digital output pin
+
+// Define the delay for a 2.5 MHz clock
+// A 2.5 MHz clock means a period of 1 / 2.5 MHz = 0.4 microseconds = 400 nanoseconds.
+// Each clock cycle involves setting SCK HIGH and then LOW, so each phase is 200 nanoseconds.
+const int BIT_DELAY_NS = 180; // Delay for each phase of the clock (half a cycle)
+const int NUM_LEDS = 2;
+
+void waitClock()
+{
+  // digitalWriteFast(MOSI_PIN, LOW);
+  digitalWriteFast(SCK_PIN, HIGH); // Raise SCK
+  delayNanoseconds(BIT_DELAY_NS);  // Wait for half a clock cycle
+
+  digitalWriteFast(SCK_PIN, LOW); // Lower SCK
+  delayNanoseconds(BIT_DELAY_NS); // Wait for the other half of the clock cycle
+}
+
+void sendPWMBits(uint8_t pwmBit, int blade)
+{
+  if (pwmBit == 1)
+  {
+    digitalWriteFast(MOSI_PINS[blade], 1);
+    waitClock();
+    digitalWriteFast(MOSI_PINS[blade], 1);
+    waitClock();
+    digitalWriteFast(MOSI_PINS[blade], 0);
+  }
+  else
+  {
+    digitalWriteFast(MOSI_PINS[blade], 1);
+    waitClock();
+    digitalWriteFast(MOSI_PINS[blade], 0);
+    waitClock();
+    digitalWriteFast(MOSI_PINS[blade], 0);
+  }
+}
+
+void sendByte(byte data, int blade)
+{
+  for (int i = 7; i >= 0; i--)
+  { // MSB first
+    uint8_t pwmBit = (data >> i) & 0x01;
+    sendPWMBits(pwmBit, blade);
+  }
+}
+
+void ws2812b_spi_out(uint8_t *frame_buffer, int circ_offset, int blade)
+{
+  for (int LED = 0; LED < LEDS_PER_BLADE; LED++)
+  {
+    int LED_offset = circ_offset + LED * 3;
+    for (int color_index = 0; color_index < BYTES_PER_LED; color_index++)
+    {
+      int color_offset = LED_offset + color_index;
+      uint8_t color_value = *(frame_buffer + color_offset);
+
+      for (int i = 7; i >= 0; i--)
+      { // MSB first
+        uint8_t pwmBit = (color_value >> i) & 0x01;
+        // sendPWMBits(pwmBit, blade);
+      }
+    }
+    delayMicroseconds(55);
+  }
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -239,7 +317,6 @@ void setup()
   Serial.println("Starting memory allocation example...");
 
   uint8_t *frame_buffer = allocate(450000);
-
   for (int i = 0; i < 450000; i++)
   {
     frame_buffer[i] = 0;
@@ -257,7 +334,22 @@ void setup()
   Serial.println(Ethernet.localIP());
   connect();
 
+  for (int i = 0; i < BLADES; i++)
+  {
+    pinMode(MOSI_PINS[i], OUTPUT);
+    pinMode(SCK_PINS[i], OUTPUT);
+  }
+
+  digitalWriteFast(SCK_PIN, LOW); // Ensure SCK starts low
+
   double start_s = current_time_s();
+  int rotation_index = 0; // Out of circ pixels
+
+  sendByte(0, 0);
+  sendByte(0, 0);
+  sendByte(0, 0);
+  delayMicroseconds(55);
+
   while (1)
   {
     frame_read = read(frame_buffer);
@@ -269,15 +361,49 @@ void setup()
       frame_count++;
       frames_per_second = frame_count / elapsed_time_s(start_s);
 
-      print(String("Frame ") + String(frame_count) + String(": "), false);
-      print(String(frames_per_second) + String(" FPS, "), false);
-      print(String(megabits_per_second) + String(" Mb/s, "), false);
-      print(String(megabits_per_second/8/3*1000000) + String(" Pixels/s,"), false);
-      for (int i = 0; i < PREAMBLE_LENGTH; i++)
+      bool diagnostic_prints = false;
+      if (diagnostic_prints)
       {
-        print(uint8_to_3_str(frame_buffer[i]), false);
+        print(String("Frame ") + String(frame_count) + String(": "), false);
+        print(String(frames_per_second) + String(" FPS, "), false);
+        print(String(megabits_per_second) + String(" Mb/s, "), false);
+        print(String(megabits_per_second / 8 / 3 * 1000000) + String(" Pixels/s,"), false);
+        for (int i = 0; i < PREAMBLE_LENGTH; i++)
+        {
+          print(uint8_to_3_str(frame_buffer[i]), false);
+        }
+        print("");
+      }
+      // for (int blade = 0; blade < BLADES; blade++)
+      // {
+      //   int blade_rotation = rotation_index + blade * int(LEDS_CRICUMF / BLADES);
+      //   int circ_offset = PREAMBLE_LENGTH + blade_rotation * LEDS_PER_BLADE * BYTES_PER_LED;
+      //   ws2812b_spi_out(frame_buffer, circ_offset, blade);
+      // }
+      print("First row grb: ", false);
+      for (int blade = 0; blade < BLADES; blade++)
+      {
+        int blade_rotation = rotation_index + blade * int(LEDS_CRICUMF / BLADES);
+        int circ_offset = PREAMBLE_LENGTH + blade_rotation * LEDS_PER_BLADE * BYTES_PER_LED;
+        for (int radial_LED = 0; radial_LED < LEDS_PER_BLADE; radial_LED++)
+        {
+          for (int color_index = 0; color_index < BYTES_PER_LED; color_index++)
+          {
+            int offset = circ_offset+radial_LED*3+color_index;
+            uint8_t color_byte = frame_buffer[offset];
+            sendByte(color_byte, blade);
+            if (radial_LED == 0)
+            {
+              print(uint8_to_3_str(color_byte), false);
+            }
+          }
+        }
+        delayMicroseconds(55);
+        print("|", false);
       }
       print("");
+        
+      
     }
     check_connection();
     // delay(1);

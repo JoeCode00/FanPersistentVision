@@ -28,8 +28,10 @@ def read_h_constants(filepath):
     return constants
 
 def set_leds(arr, frame=0):
-    for circumf in range(LEDS_CRICUMF):
-        arr[circumf, :, :] = np.mod(circumf, 256)
+    # for circumf in range(LEDS_CRICUMF):
+    #     arr[circumf, :, :] = np.mod(circumf, 256)
+    for circ in range(LEDS_CRICUMF):
+        arr[circ, :, 1] = np.round(circ/LEDS_CRICUMF*255)
     return arr
 
 def create_bytes(preamble_list, arr):
@@ -71,10 +73,11 @@ def main():
         #     print(f"Sent frame {frame}, size: {len(data_to_send)} bytes")
         #     frame = frame + 1
 
-        preamble_list =  set_preamble(frame)
-        arr = set_leds(arr, frame)
-        data_to_send = create_bytes(preamble_list, arr)
+
         while True:
+            preamble_list =  set_preamble(frame)
+            arr = set_leds(arr, frame)
+            data_to_send = create_bytes(preamble_list, arr)
             transmit(client_socket, data_to_send)
             print(f"{datetime.now().isoformat()} Sent frame {frame}, size: {len(data_to_send)} bytes")
             frame = frame + 1
