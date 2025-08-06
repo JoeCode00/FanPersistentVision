@@ -1,5 +1,12 @@
 #include <Arduino.h>
 #include <chrono>
+#include <FlexIO_t4.h>
+#include <FlexIOSPI.h>
+#include <QNEthernet.h>
+#include <constants.h>
+
+
+using namespace qindesign::network;
 
 // Enable high-performance mode
 #define QNETHERNET_BUFFERS_IN_RAM 1
@@ -59,11 +66,6 @@
 #define CHECKSUM_CHECK_UDP 1
 #define CHECKSUM_CHECK_TCP 1
 
-#include <QNEthernet.h>
-#include <constants.h>
-
-using namespace qindesign::network;
-
 IPAddress serverIP;
 
 IPAddress staticIP;
@@ -90,14 +92,32 @@ float frames_per_second = 0.0;
 
 bool ws2812b_spi_data[LEDS_PER_BLADE * BYTES_PER_LED * 8 * 3]; // *3 due to the 3 bits needed for PWM emulation
 
-const int MOSI_PINS[BLADES] = {7, 14, 17, 20, 26};
-const int SCK_PINS[BLADES] = {3, 15, 18, 21, 27};
-const int MISO_PINS[BLADES] = {1, 1, 1, 1, 1};
-const int CS_PINS[BLADES] = {2, 2, 2, 2, 2};
-const int CLOCK_FREQ = 2500000; // 2.5 MHz
 
-long long
-current_time_ns()
+// const int MOSI_PINS[BLADES] = {19, 22, 2, 8, 34}; 
+// const int MISO_PINS[BLADES] = {}; // Not used, but SPI won't begin() without assignment
+// const int SCK_PINS[BLADES] = {}; 
+const int CLOCK_FREQ = 80000000;
+
+// Unused CS pins, undeclared.
+// FlexIOSPI spi0(MOSI_PINS[0], MISO_PINS[0], SCK_PINS[0]); 
+// FlexIOSPI spi1(MOSI_PINS[1], MISO_PINS[1], SCK_PINS[1]);
+// FlexIOSPI spi2(MOSI_PINS[2], MISO_PINS[2], SCK_PINS[2]);
+// FlexIOSPI spi3(MOSI_PINS[3], MISO_PINS[3], SCK_PINS[3]);
+// FlexIOSPI spi4(MOSI_PINS[4], MISO_PINS[4], SCK_PINS[4]); 
+
+// FlexIO1 Channels
+FlexIOSPI spi0(19, 18, 14); // MOSI, MISO, SCK
+FlexIOSPI spi1(22, 23, 20);
+
+// FlexIO2 Channels
+FlexIOSPI spi2(2, 3, 4);
+FlexIOSPI spi3(8, 9, 10);
+FlexIOSPI spi4(34, 35, 36); // or (38, 39, 40)
+
+FlexIOSPI spi_channels[BLADES] = {spi0, spi1, spi2, spi3, spi4}; // Use same instance for all channels for testing
+
+
+long long current_time_ns()
 {
   auto current = std::chrono::high_resolution_clock::now();
   return std::chrono::duration_cast<std::chrono::nanoseconds>(current.time_since_epoch()).count();
@@ -143,9 +163,9 @@ String uint8_to_3_str(uint8_t num, bool left_space = true)
   return ls + String(num);
 }
 
-void connect()
+bool connect()
 {
-  Serial.println("Connecting to server...");
+
   if (client.connect(serverIP, SERVER_PORT))
   {
     Serial.println("Connected to server!");
@@ -154,7 +174,9 @@ void connect()
   {
     Serial.print("Connection failed - error: ");
     Serial.println(client.status()); // Get the connection status code
+    return false;
   }
+  return true;
 }
 
 void parse_preamble(uint8_t *buffer)
@@ -207,21 +229,7 @@ bool read(uint8_t *buffer)
   return frame_read;
 }
 
-void check_connection()
-{
-  if (!client.connected() && (connection_retries < max_connection_retries))
-  {
-    Serial.println("Server disconnected or was never connected.");
-    client.stop();
-    delay(connection_retry_delay_ms);
-    connect();
-    connection_retries++;
-    if (connection_retries >= max_connection_retries)
-    {
-      Serial.println("Max connection retries reached, permanantly disconnecting.");
-    }
-  }
-}
+
 
 uint8_t *allocate(int bytes)
 {
@@ -239,72 +247,99 @@ void move_uint8_t(uint8_t *source, int source_start_index, int transfer_length_B
   memcpy(&destination[destination_start_index], &source[source_start_index], transfer_length_B);
 }
 
-// Define the pins for MOSI and SCK
-const int MOSI_PIN = 7; // Example pin, choose any available digital output pin
-const int SCK_PIN = 13; // Example pin, choose any available digital output pin
+// // Define the pins for MOSI and SCK
+// const int MOSI_PIN = 7; // Example pin, choose any available digital output pin
+// const int SCK_PIN = 13; // Example pin, choose any available digital output pin
 
-// Define the delay for a 2.5 MHz clock
-// A 2.5 MHz clock means a period of 1 / 2.5 MHz = 0.4 microseconds = 400 nanoseconds.
-// Each clock cycle involves setting SCK HIGH and then LOW, so each phase is 200 nanoseconds.
-const int BIT_DELAY_NS = 180; // Delay for each phase of the clock (half a cycle)
-const int NUM_LEDS = 2;
+// // Define the delay for a 2.5 MHz clock
+// // A 2.5 MHz clock means a period of 1 / 2.5 MHz = 0.4 microseconds = 400 nanoseconds.
+// // Each clock cycle involves setting SCK HIGH and then LOW, so each phase is 200 nanoseconds.
+// const int BIT_DELAY_NS = 180; // Delay for each phase of the clock (half a cycle)
+// const int NUM_LEDS = 2;
 
-void waitClock()
-{
-  // digitalWriteFast(MOSI_PIN, LOW);
-  digitalWriteFast(SCK_PIN, HIGH); // Raise SCK
-  delayNanoseconds(BIT_DELAY_NS);  // Wait for half a clock cycle
+// void waitClock()
+// {
+//   // digitalWriteFast(MOSI_PIN, LOW);
+//   digitalWriteFast(SCK_PIN, HIGH); // Raise SCK
+//   delayNanoseconds(BIT_DELAY_NS);  // Wait for half a clock cycle
 
-  digitalWriteFast(SCK_PIN, LOW); // Lower SCK
-  delayNanoseconds(BIT_DELAY_NS); // Wait for the other half of the clock cycle
+//   digitalWriteFast(SCK_PIN, LOW); // Lower SCK
+//   delayNanoseconds(BIT_DELAY_NS); // Wait for the other half of the clock cycle
+// }
+
+// void sendPWMBits(uint8_t pwmBit, int blade)
+// {
+//   digitalWriteFast(MOSI_PINS[blade], 1);
+//   waitClock();
+//   digitalWriteFast(MOSI_PINS[blade], pwmBit);
+//   waitClock();
+//   digitalWriteFast(MOSI_PINS[blade], 0);
+// }
+
+// void sendByte(byte data, int blade)
+// {
+//   for (int i = 7; i >= 0; i--)
+//   { // MSB first
+//     uint8_t pwmBit = (data >> i) & 0x01;
+//     sendPWMBits(pwmBit, blade);
+//   }
+// }
+
+// void ws2812b_spi_out(uint8_t *frame_buffer, int circ_offset, int blade)
+// {
+//   for (int LED = 0; LED < LEDS_PER_BLADE; LED++)
+//   {
+//     int LED_offset = circ_offset + LED * 3;
+//     for (int color_index = 0; color_index < BYTES_PER_LED; color_index++)
+//     {
+//       int color_offset = LED_offset + color_index;
+//       uint8_t color_value = *(frame_buffer + color_offset);
+
+//       for (int i = 7; i >= 0; i--)
+//       { // MSB first
+//         uint8_t pwmBit = (color_value >> i) & 0x01;
+// sendPWMBits(pwmBit, blade);
+//       }
+//     }
+//     delayMicroseconds(55);
+//   }
+// }
+void infinite_loop(){
+  print("Entering infinite waiting loop... forever!!");
+  while (1)
+      {
+      };
 }
 
-void sendPWMBits(uint8_t pwmBit, int blade)
+void stop_teensy()
 {
-  if (pwmBit == 1)
-  {
-    digitalWriteFast(MOSI_PINS[blade], 1);
-    waitClock();
-    digitalWriteFast(MOSI_PINS[blade], 1);
-    waitClock();
-    digitalWriteFast(MOSI_PINS[blade], 0);
-  }
-  else
-  {
-    digitalWriteFast(MOSI_PINS[blade], 1);
-    waitClock();
-    digitalWriteFast(MOSI_PINS[blade], 0);
-    waitClock();
-    digitalWriteFast(MOSI_PINS[blade], 0);
-  }
+  print("Stopping Teensy...");
+  delay(100);     // Small delay to allow serial transmission
+
+  // Method 1: Use ARM Cortex-M7 System Control Block (SCB) reset
+  SCB_AIRCR = 0x05FA0004; // ARM Cortex reset
+
+  // If that doesn't work, try method 2:
+  // asm volatile("dsb");
+  // SCB_AIRCR = 0x05FA0004;
+  // asm volatile("dsb");
+  // while(1); // Wait for reset
 }
 
-void sendByte(byte data, int blade)
+void check_connection()
 {
-  for (int i = 7; i >= 0; i--)
-  { // MSB first
-    uint8_t pwmBit = (data >> i) & 0x01;
-    sendPWMBits(pwmBit, blade);
-  }
-}
-
-void ws2812b_spi_out(uint8_t *frame_buffer, int circ_offset, int blade)
-{
-  for (int LED = 0; LED < LEDS_PER_BLADE; LED++)
+  if (!client.connected() && (connection_retries < max_connection_retries))
   {
-    int LED_offset = circ_offset + LED * 3;
-    for (int color_index = 0; color_index < BYTES_PER_LED; color_index++)
+    Serial.println("Server disconnected or was never connected.");
+    client.stop();
+    delay(connection_retry_delay_ms);
+    connect();
+    connection_retries++;
+    if (connection_retries >= max_connection_retries)
     {
-      int color_offset = LED_offset + color_index;
-      uint8_t color_value = *(frame_buffer + color_offset);
-
-      for (int i = 7; i >= 0; i--)
-      { // MSB first
-        uint8_t pwmBit = (color_value >> i) & 0x01;
-        // sendPWMBits(pwmBit, blade);
-      }
+      print("Max connection retries reached, restarting Teensy...");
+      stop_teensy(); // Restart instead of just disconnecting
     }
-    delayMicroseconds(55);
   }
 }
 
@@ -313,11 +348,20 @@ void setup()
   Serial.begin(115200);
   while (!Serial && millis() < 3000)
     ; // Wait for serial connection
+  delay(2000);
+  for (int i = 0; i < BLADES; i++)
+  {
+    if (!spi_channels[i].begin())
+    {
+      print(String("Could not begin SPI channel ") + String(i));
+      infinite_loop();
+    }
+  }
+  print("All SPI channels begun");
+  // Remove initial transaction setup - we'll handle it per transfer
 
-  Serial.println("Starting memory allocation example...");
-
-  uint8_t *frame_buffer = allocate(450000);
-  for (int i = 0; i < 450000; i++)
+  uint8_t *frame_buffer = allocate(packet_length);
+  for (int i = 0; i < packet_length; i++)
   {
     frame_buffer[i] = 0;
   }
@@ -332,23 +376,16 @@ void setup()
 
   Serial.print("Local IP: ");
   Serial.println(Ethernet.localIP());
-  connect();
-
-  for (int i = 0; i < BLADES; i++)
+  Serial.println("Connecting to server...");
+  while (!connect())
   {
-    pinMode(MOSI_PINS[i], OUTPUT);
-    pinMode(SCK_PINS[i], OUTPUT);
   }
 
-  digitalWriteFast(SCK_PIN, LOW); // Ensure SCK starts low
-
   double start_s = current_time_s();
-  int rotation_index = 0; // Out of circ pixels
 
-  sendByte(0, 0);
-  sendByte(0, 0);
-  sendByte(0, 0);
-  delayMicroseconds(55);
+  print(String("Started transaction on SPI")+String(0));
+          
+  spi_channels[0].beginTransaction(FlexIOSPISettings(CLOCK_FREQ, MSBFIRST, SPI_MODE0));
 
   while (1)
   {
@@ -374,40 +411,41 @@ void setup()
         }
         print("");
       }
-      // for (int blade = 0; blade < BLADES; blade++)
-      // {
-      //   int blade_rotation = rotation_index + blade * int(LEDS_CRICUMF / BLADES);
-      //   int circ_offset = PREAMBLE_LENGTH + blade_rotation * LEDS_PER_BLADE * BYTES_PER_LED;
-      //   ws2812b_spi_out(frame_buffer, circ_offset, blade);
-      // }
-      print("First row grb: ", false);
-      for (int blade = 0; blade < BLADES; blade++)
+      for (int rotation_index = 0; rotation_index < LEDS_CRICUMF; rotation_index++)
       {
-        int blade_rotation = rotation_index + blade * int(LEDS_CRICUMF / BLADES);
-        int circ_offset = PREAMBLE_LENGTH + blade_rotation * LEDS_PER_BLADE * BYTES_PER_LED;
-        for (int radial_LED = 0; radial_LED < LEDS_PER_BLADE; radial_LED++)
-        {
-          for (int color_index = 0; color_index < BYTES_PER_LED; color_index++)
-          {
-            int offset = circ_offset+radial_LED*3+color_index;
-            uint8_t color_byte = frame_buffer[offset];
-            sendByte(color_byte, blade);
-            if (radial_LED == 0)
-            {
-              print(uint8_to_3_str(color_byte), false);
-            }
-          }
-        }
-        delayMicroseconds(55);
-        print("|", false);
+        // for (int blade = 0; blade < 1; blade++)
+        // {
+          int blade = 0;
+          int blade_rotation = rotation_index + blade * int(LEDS_CRICUMF / BLADES);
+          int circ_offset = PREAMBLE_LENGTH + blade_rotation * LEDS_PER_BLADE * BYTES_PER_LED;
+          uint8_t *circ_ptr = frame_buffer + circ_offset;
+
+          
+
+          // print(String("Started transfer on blade ")+String(blade));
+          // print(String("Byte at start of blade: ")+String(*circ_ptr));
+          
+          spi_channels[0].transferBufferNBits(circ_ptr, nullptr, LEDS_PER_BLADE * BYTES_PER_LED *BLADES, 8);
+          // for (int i = 0; i < LEDS_PER_BLADE * BYTES_PER_LED; i++)
+          // {
+          //   spi_channels[blade].transfer(circ_ptr[i]);
+          // }
+
+          print(String("Transfered ")+String(rotation_index));
+          
+          
+          
+          // Add delay after each transfer to ensure completion
+          delay(15);
+        // }
+        // print("");
       }
-      print("");
-        
-      
     }
     check_connection();
     // delay(1);
   }
+  // End transaction to free up resources
+  spi_channels[0].endTransaction();
 
   Serial.println("");
   // Clean up memory

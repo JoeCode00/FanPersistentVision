@@ -3,6 +3,7 @@ import time
 from datetime import datetime
 import os
 import numpy as np
+import colorsys
 from src.buildTeensy import build_teensy
 from src.tcp import start_server, transmit
 
@@ -31,7 +32,10 @@ def set_leds(arr, frame=0):
     # for circumf in range(LEDS_CRICUMF):
     #     arr[circumf, :, :] = np.mod(circumf, 256)
     for circ in range(LEDS_CRICUMF):
-        arr[circ, :, 1] = np.round(circ/LEDS_CRICUMF*255)
+        r, g, b = colorsys.hls_to_rgb(circ/LEDS_CRICUMF, 0.25, 1)
+        arr[circ, :, 0] = g*20
+        arr[circ, :, 1] = r*20
+        arr[circ, :, 2] = b*20
     return arr
 
 def create_bytes(preamble_list, arr):
